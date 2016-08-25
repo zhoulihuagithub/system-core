@@ -165,13 +165,13 @@ void FirstStageMount::InitRequiredDevices() {
 
     if (need_dm_verity_) {
         const std::string dm_path = "/devices/virtual/misc/device-mapper";
-        device_init(("/sys" + dm_path).c_str(), [&dm_path](uevent* uevent) -> coldboot_action_t {
+        device_init(false, ("/sys" + dm_path).c_str(), [&dm_path](uevent* uevent) -> coldboot_action_t {
             if (uevent->path && uevent->path == dm_path) return COLDBOOT_STOP;
             return COLDBOOT_CONTINUE;  // dm_path not found, continue to find it.
         });
     }
 
-    device_init(nullptr,
+    device_init(false, nullptr,
                 [this](uevent* uevent) -> coldboot_action_t { return ColdbootCallback(uevent); });
 
     device_close();
@@ -212,7 +212,7 @@ void FirstStageMount::InitVerityDevice(const std::string& verity_device) {
     const std::string device_name(basename(verity_device.c_str()));
     const std::string syspath = "/sys/block/" + device_name;
 
-    device_init(syspath.c_str(), [&](uevent* uevent) -> coldboot_action_t {
+    device_init(false, syspath.c_str(), [&](uevent* uevent) -> coldboot_action_t {
         if (uevent->device_name && uevent->device_name == device_name) {
             LOG(VERBOSE) << "Creating dm-verity device : " << verity_device;
             return COLDBOOT_STOP;

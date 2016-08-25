@@ -39,14 +39,16 @@ struct uevent {
     const char* firmware;
     const char* partition_name;
     const char* device_name;
+    const char *modalias;
     int partition_num;
     int major;
     int minor;
 };
 
 typedef std::function<coldboot_action_t(struct uevent* uevent)> coldboot_callback;
-extern coldboot_action_t handle_device_fd(coldboot_callback fn = nullptr);
-extern void device_init(const char* path = nullptr, coldboot_callback fn = nullptr);
+extern coldboot_action_t handle_device_fd(bool child, coldboot_callback fn = nullptr);
+extern void device_init(bool child, const char* path = nullptr, coldboot_callback fn = nullptr);
+extern int modprobe_main(int argc, char **argv);
 extern void device_close();
 
 extern int add_dev_perms(const char *name, const char *attr,
