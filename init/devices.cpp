@@ -99,6 +99,7 @@ struct module_alias_node {
 
 struct module_blacklist_node {
     char *name;
+    bool deferred;
     struct listnode list;
 };
 
@@ -843,7 +844,7 @@ static void handle_generic_device_event(struct uevent *uevent)
              uevent->major, uevent->minor, links);
 }
 
-static int is_module_blacklisted(const char *name)
+static int is_module_blacklisted_or_deferred(const char *name, bool need_deferred)
 {
     struct listnode *blklst_node;
     struct module_blacklist_node *blacklist;
@@ -858,7 +859,7 @@ static int is_module_blacklisted(const char *name)
                                  list);
         if (!strcmp(name, blacklist->name)) {
             LOG(INFO) << "modules %s is blacklisted\n" << name;
-            ret = 1;
+            ret = blacklist->deferred ? (need_deferred ? 2 : 0) : 1;
             goto out;
         }
     }
@@ -867,7 +868,7 @@ out:
     return ret;
 }
 
-static int load_module_by_device_modalias(const char *id)
+static int load_module_by_device_modalias(const char *id, bool need_deferred)
 {
     struct listnode *alias_node;
     struct module_alias_node *alias;
@@ -880,8 +881,9 @@ static int load_module_by_device_modalias(const char *id)
             if (fnmatch(alias->pattern, id, 0) == 0) {
                 LOG(INFO) << "trying to load module %s due to uevents\n" << alias->name;
 
-                if (!is_module_blacklisted(alias->name)) {
-                    if (insmod_by_dep(alias->name, "", NULL, 0, NULL)) {
+                ret = is_module_blacklisted_or_deferred(alias->name, need_deferred);
+                if (ret == 0) {
+                    if ((ret = insmod_by_dep(alias->name, "", NULL, 0, NULL))) {
                         /* cannot load module. try another one since
                          * there may be another match.
                          */
@@ -890,8 +892,9 @@ static int load_module_by_device_modalias(const char *id)
                     } else {
                         /* loading was successful */
                         LOG(INFO) << "loaded module %s due to uevents\n" << alias->name;
-                        ret = 0;
                     }
+                } else {
+                    LOG(INFO) << "blacklisted module %s: %d\n" << alias->name << ret;
                 }
             }
         }
@@ -915,7 +918,7 @@ static void handle_deferred_module_loading()
 
             if (alias && alias->pattern) {
                 LOG(INFO) << "deferred loading of module for %s\n" << alias->pattern;
-                load_module_by_device_modalias(alias->pattern);
+                load_module_by_device_modalias(alias->pattern, false);
                 free(alias->pattern);
                 list_remove(node);
                 free(alias);
@@ -932,7 +935,7 @@ static int module_probe(int argc, char **argv)
     }
 
     // is it a modalias?
-    int ret = load_module_by_device_modalias(argv[1]);
+    int ret = load_module_by_device_modalias(argv[1], false);
     if (ret) {
         // treat it as a module name
         std::string options;
@@ -973,6 +976,10 @@ int modprobe_main(int argc, char **argv)
     return module_probe(argc, argv);
 }
 
+static int is_booting() {
+    return access("/dev/.booting", F_OK) == 0;
+}
+
 static void handle_module_loading(const char *modalias)
 {
     struct module_alias_node *node;
@@ -983,13 +990,13 @@ static void handle_module_loading(const char *modalias)
     if (list_empty(&modules_aliases_map)) {
         if (read_modules_aliases() == 0) {
             read_modules_blacklist();
-            handle_deferred_module_loading();
         }
     }
 
     if (!modalias) return;
 
-    if (list_empty(&modules_aliases_map)) {
+    if (list_empty(&modules_aliases_map) ||
+            load_module_by_device_modalias(modalias, is_booting()) == 2) {
         /* if module alias mapping is empty,
          * queue it for loading later
          */
@@ -1006,10 +1013,7 @@ static void handle_module_loading(const char *modalias)
         } else {
             PLOG(ERROR) << "failed to allocate memory to store device id for deferred module loading.\n";
         }
-    } else {
-        load_module_by_device_modalias(modalias);
     }
-
 }
 
 static void handle_device_event(struct uevent *uevent)
@@ -1045,10 +1049,6 @@ static void load_firmware(uevent* uevent, const std::string& root,
     // Tell the firmware whether to abort or commit.
     const char* response = (rc != -1) ? "0" : "-1";
     android::base::WriteFully(loading_fd, response, strlen(response));
-}
-
-static int is_booting() {
-    return access("/dev/.booting", F_OK) == 0;
 }
 
 static void process_firmware_event(uevent* uevent) {
@@ -1137,6 +1137,7 @@ static void parse_line_module_alias(struct parse_state *state, int nargs, char *
 static void parse_line_module_blacklist(struct parse_state *state, int nargs, char **args)
 {
     struct module_blacklist_node *node;
+    bool deferred;
 
     if (!args ||
         (nargs != 2) ||
@@ -1145,8 +1146,13 @@ static void parse_line_module_blacklist(struct parse_state *state, int nargs, ch
         return;
     }
 
-    /* this line does not being with "blacklist" */
-    if (strncmp(args[0], "blacklist", 9)) return;
+    /* this line does not being with "blacklist" or "deferred" */
+    if (!strncmp(args[0], "blacklist", 9))
+        deferred = false;
+    else if (!strncmp(args[0], "deferred", 8))
+        deferred = true;
+    else
+        return;
 
     node = (module_blacklist_node *) calloc(1, sizeof(*node));
     if (!node) return;
@@ -1156,6 +1162,7 @@ static void parse_line_module_blacklist(struct parse_state *state, int nargs, ch
         free(node);
         return;
     }
+    node->deferred = deferred;
 
     list_add_tail(&modules_blacklist, &node->list);
 }
@@ -1407,6 +1414,7 @@ void device_init(bool child, const char* path, coldboot_callback fn) {
     // If we have a callback, then do as it says. If no, then the default is
     // to always create COLDBOOT_DONE file.
     if (!fn || (act == COLDBOOT_FINISH)) {
+	handle_deferred_module_loading();
         close(open(COLDBOOT_DONE, O_WRONLY|O_CREAT|O_CLOEXEC, 0000));
     }
 
