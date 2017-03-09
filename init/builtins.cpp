@@ -704,6 +704,16 @@ static int do_powerctl(const std::vector<std::string>& args) {
             callback_on_ro_remount = unmount_and_fsck;
         } else if (cmd == ANDROID_RB_RESTART2) {
             reboot_target = &command[len + 1];
+            // When rebooting to the bootloader notify the bootloader writing
+            // also the BCB.
+            if (strcmp(reboot_target, "bootloader") == 0) {
+                std::string err;
+                if (!write_reboot_bootloader(&err)) {
+                    ERROR("reboot-bootloader: Error writing "
+                          "bootloader_message: %s\n",
+                          err.c_str());
+                }
+            }
         }
     } else if (command[len] != '\0') {
         ERROR("powerctl: unrecognized reboot target '%s'\n", &command[len]);
