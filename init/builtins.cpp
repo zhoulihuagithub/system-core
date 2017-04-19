@@ -706,15 +706,30 @@ static int do_powerctl(const std::vector<std::string>& args) {
             reboot_target = &command[len + 1];
             // When rebooting to the bootloader notify the bootloader writing
             // also the BCB.
+	    std::string err;
+	    std::string cmd;
             if (strcmp(reboot_target, "bootloader") == 0) {
-                std::string err;
-                if (!write_reboot_bootloader(&err)) {
+		cmd = "bootonce-bootloader";
+                if (!write_reboot_bootloader(&err,&cmd)) {
                     ERROR("reboot-bootloader: Error writing "
-                          "bootloader_message: %s\n",
-                          err.c_str());
+                          "bootloader_message: %s\n",err.c_str());
                 }
             }
-        }
+            else if (strcmp(reboot_target, "fastboot") == 0) {
+		cmd = "bootonce-fastboot";
+                if (!write_reboot_bootloader(&err,&cmd)) {
+                    ERROR("reboot fastboot: Error writing "
+                          "bootloader_message: %s\n",err.c_str());
+                }
+            }
+            else if (strcmp(reboot_target, "recovery") == 0) {
+		cmd = "bootonce-recovery";
+                if (!write_reboot_bootloader(&err,&cmd)) {
+                    ERROR("reboot recovery: Error writing "
+                          "bootloader_message: %s\n",err.c_str());
+                }
+            }
+	}
     } else if (command[len] != '\0') {
         ERROR("powerctl: unrecognized reboot target '%s'\n", &command[len]);
         return -EINVAL;
