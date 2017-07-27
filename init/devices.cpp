@@ -1082,7 +1082,15 @@ static void handle_firmware_event(struct uevent *uevent)
     if(strcmp(uevent->action, "add"))
         return;
 
-    process_firmware_event(uevent);
+    pid_t pid = fork();
+    if (pid == 0) {
+        Timer t;
+        process_firmware_event(uevent);
+        NOTICE("loading %s took %.2fs.\n", uevent->path, t.duration());
+        _exit(EXIT_SUCCESS);
+    } else if(pid == -1) {
+        ERROR("could not fork to process firmeare event for %s\n", uevent->firmware);
+    }
 }
 
 static void parse_line_module_alias(struct parse_state *state, int nargs, char **args)
@@ -1231,7 +1239,7 @@ static int read_modules_blacklist() {
 }
 
 #define UEVENT_MSG_LEN  2048
-void handle_device_fd(bool child)
+void handle_device_fd()
 {
     char msg[UEVENT_MSG_LEN+2];
     int n;
@@ -1254,11 +1262,8 @@ void handle_device_fd(bool child)
             }
         }
 
-        if (child) {
-            handle_firmware_event(&uevent);
-        } else {
-            handle_device_event(&uevent);
-        }
+        handle_device_event(&uevent);
+        handle_firmware_event(&uevent);
     }
 }
 
@@ -1314,7 +1319,7 @@ static void coldboot(const char *path)
     }
 }
 
-void device_init(bool child)
+void device_init()
 {
     sehandle = selinux_android_file_context_handle();
     selinux_status_open(true);
@@ -1326,9 +1331,6 @@ void device_init(bool child)
     }
     fcntl(device_fd, F_SETFL, O_NONBLOCK);
 
-    if (child) {
-        return; // don't do coldboot in child
-    }
     if (access(COLDBOOT_DONE, F_OK) == 0) {
         NOTICE("Skipping coldboot, already done!\n");
         return;
