@@ -218,6 +218,7 @@ static struct sync_file_info *modern_sync_file_info(int fd)
     if (!info)
         return NULL;
     info->sync_fence_info = (__u64)(uintptr_t)(info + 1);
+    info->num_fences = local_info.num_fences;
 
     err = ioctl(fd, SYNC_IOC_FILE_INFO, info);
     if (err < 0) {
