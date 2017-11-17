@@ -74,12 +74,7 @@ int ueventd_main(int argc, char **argv)
     std::string hardware = android::base::GetProperty("ro.hardware", "");
     ueventd_parse_config_file(android::base::StringPrintf("/ueventd.%s.rc", hardware.c_str()).c_str());
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        LOG(ERROR) << "could not fork to process firmware event: %s\n" << strerror(errno);
-    }
-
-    device_init(pid == 0);
+    device_init();
 
     pollfd ufd;
     ufd.events = POLLIN;
@@ -92,7 +87,7 @@ int ueventd_main(int argc, char **argv)
             continue;
         }
         if (ufd.revents & POLLIN) {
-            handle_device_fd(pid == 0);
+            handle_device_fd();
         }
     }
 
