@@ -1101,7 +1101,15 @@ static void handle_firmware_event(uevent* uevent) {
     if (strcmp(uevent->subsystem, "firmware")) return;
     if (strcmp(uevent->action, "add")) return;
 
-    process_firmware_event(uevent);
+    pid_t pid = fork();
+    if (pid == 0) {
+        Timer t;
+        process_firmware_event(uevent);
+        LOG(INFO) << "loading '" << uevent->path << "' took " << t.duration_s() << "s";
+        _exit(EXIT_SUCCESS);
+    } else if(pid == -1) {
+        PLOG(ERROR) << "could not fork to process firmeare event for '" << uevent->firmware << "'\n";
+    }
 }
 
 static void parse_line_module_alias(struct parse_state *state, int nargs, char **args)
@@ -1278,7 +1286,7 @@ static inline coldboot_action_t handle_device_fd_with(
     return COLDBOOT_CONTINUE;
 }
 
-coldboot_action_t handle_device_fd(bool child, coldboot_callback fn)
+coldboot_action_t handle_device_fd(coldboot_callback fn)
 {
     coldboot_action_t ret = handle_device_fd_with(
         [&](uevent* uevent) -> coldboot_action_t {
@@ -1334,7 +1342,7 @@ static coldboot_action_t do_coldboot(DIR *d, coldboot_callback fn)
     if (fd >= 0) {
         write(fd, "add\n", 4);
         close(fd);
-        act = handle_device_fd(false, fn);
+        act = handle_device_fd(fn);
         if (should_stop_coldboot(act))
             return act;
     }
@@ -1372,7 +1380,7 @@ static coldboot_action_t coldboot(const char *path, coldboot_callback fn)
     return COLDBOOT_CONTINUE;
 }
 
-void device_init(bool child, const char* path, coldboot_callback fn) {
+void device_init(const char* path, coldboot_callback fn) {
     if (!sehandle) {
         sehandle = selinux_android_file_context_handle();
     }
@@ -1386,10 +1394,6 @@ void device_init(bool child, const char* path, coldboot_callback fn) {
         }
         fcntl(device_fd, F_SETFL, O_NONBLOCK);
         selinux_status_open(true);
-    }
-
-    if (child) {
-        return; // don't do coldboot in child
     }
 
     if (access(COLDBOOT_DONE, F_OK) == 0) {
