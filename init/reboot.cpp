@@ -450,6 +450,27 @@ bool HandlePowerctlMessage(const std::string& command) {
                                << err;
                 }
             }
+            // When rebooting to the recovery notify the bootloader writing
+            // also the BCB.
+            if (reboot_target == "recovery") {
+                std::string err;
+                bootloader_message boot = {};
+                if (!read_bootloader_message(&boot, &err)) {
+                    return false;
+                }
+                if (boot.command[0] != '\0') {
+                    err = "Bootloader command pending.";
+                    LOG(ERROR) << "reboot-recovery: Error: "
+                               << err;
+                    return false;
+                }
+                strlcpy(boot.command, "bootonce-recovery", sizeof(boot.command));
+                if (!write_bootloader_message(boot, &err)) {
+                    LOG(ERROR) << "reboot-recovery: Error writing "
+                                  "bootloader_message: "
+                               << err;
+                }
+            }
             // If there is an additional bootloader parameter, pass it along
             if (cmd_params.size() == 3) {
                 reboot_target += "," + cmd_params[2];
