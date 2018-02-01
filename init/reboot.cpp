@@ -440,32 +440,27 @@ bool HandlePowerctlMessage(const std::string& command) {
         cmd = ANDROID_RB_RESTART2;
         if (cmd_params.size() >= 2) {
             reboot_target = cmd_params[1];
-            // When rebooting to the bootloader notify the bootloader writing
+            // When rebooting to the bootloader, notify the bootloader writing
             // also the BCB.
+            std::string err;
+            std::string cmd;
             if (reboot_target == "bootloader") {
-                std::string err;
-                if (!write_reboot_bootloader(&err)) {
+                cmd = "bootonce-bootloader";
+                if (!write_reboot_bootloader(&err, &cmd)) {
                     LOG(ERROR) << "reboot-bootloader: Error writing "
                                   "bootloader_message: "
                                << err;
                 }
-            }
-            // When rebooting to the recovery notify the bootloader writing
-            // also the BCB.
-            if (reboot_target == "recovery") {
-                std::string err;
-                bootloader_message boot = {};
-                if (!read_bootloader_message(&boot, &err)) {
-                    return false;
-                }
-                if (boot.command[0] != '\0') {
-                    err = "Bootloader command pending.";
-                    LOG(ERROR) << "reboot-recovery: Error: "
+            } else if (reboot_target == "fastboot") {
+                cmd = "bootonce-fastboot";
+                if (!write_reboot_bootloader(&err, &cmd)) {
+                    LOG(ERROR) << "reboot-fastboot: Error writing "
+                                  "bootloader_message: "
                                << err;
-                    return false;
                 }
-                strlcpy(boot.command, "bootonce-recovery", sizeof(boot.command));
-                if (!write_bootloader_message(boot, &err)) {
+            } else if (reboot_target == "recovery") {
+                cmd = "bootonce-recovery";
+                if (!write_reboot_bootloader(&err, &cmd)) {
                     LOG(ERROR) << "reboot-recovery: Error writing "
                                   "bootloader_message: "
                                << err;
